@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hero Arena - Rivals Style Prototype</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #111;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            border: 2px solid #333;
+        }
+        #ui {
+            margin-bottom: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            display: flex;
+            gap: 30px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div>Health: <span id="healthDisplay">100</span></div>
+        <div>Score: <span id="scoreDisplay">0</span></div>
+    </div>
+    
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // Game State Variables
+        let score = 0;
+        let isGameOver = false;
+
+        // Player Object
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 18,
+            speed: 4,
+            health: 100,
+            maxHealth: 100,
+            color: "#00d2ff",
+            angle: 0
+        };
+
+        // Input Tracking
+        const keys = {};
+        const mouse = { x: 0, y: 0, isDown: false };
+
+        window.addEventListener("keydown", (e) => keys[e.key.toLowerCase()] = true);
+        window.addEventListener("keyup", (e) => keys[e.key.toLowerCase()] = false);
+        window.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+        window.addEventListener("mousedown", () => mouse.isDown = true);
+        window.addEventListener("mouseup", () => mouse.isDown = false);
+
+        // Arrays for Projectiles and Enemies
+        let bullets = [];
+        let enemies = [];
+        let lastShotTime = 0;
+        const shootCooldown = 250; // Milliseconds between shots
+
+        // Projectile Class
+        class Bullet {
+            constructor(x, y, angle) {
+                this.x = x;
+                this.y = y;
+                this.speed = 10;
+                this.radius = 5;
+                this.dx = Math.cos(angle) * this.speed;
+                this.dy = Math.sin(angle) * this.speed;
+                this.color = "#ffcc00";
+            }
+            update() {
+                this.x += this.dx;
+                this.y += this.dy;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        // Enemy Bot Class
+        class Enemy {
+            constructor() {
+                // Spawn randomly on canvas borders
+                if (Math.random() < 0.5) {
+                    this.x = Math.random() < 0.5 ? 0 : canvas.width;
+                    this.y = Math.random() * canvas.height;
+                } else {
+                    this.x = Math.random() * canvas.width;
+                    this.y = Math.random() < 0.5 ? 0 : canvas.height;
+                }
+                this.radius = 15;
+                this.speed = 2;
+                this.health = 30;
+                this.color = "#ff4757";
+            }
+            update() {
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                this.x += Math.cos(angle) * this.speed;
+                this.y += Math.sin(angle) * this.speed;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        // Spawn Enemies Over Time
+        setInterval(() => {
+            if (!isGameOver && enemies.length < 10) {
+                enemies.push(new Enemy());
+            }
+        }, 1500);
+
+        // Main Update Loop
+        function update() {
+            if (isGameOver) return;
+
+            // Player Movement (WASD)
+            if ((keys['w'] || keys['arrowup']) && player.y - player.radius > 0) player.y -= player.speed;
+            if ((keys['s'] || keys['arrowdown']) && player.y + player.radius < canvas.height) player.y += player.speed;
+            if ((keys['a'] || keys['arrowleft']) && player.x - player.radius > 0) player.x -= player.speed;
+            if ((keys['d'] || keys['arrowright']) && player.x + player.radius < canvas.width) player.x += player.speed;
+
+            // Calculate Aim Angle toward Mouse
+            player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+
+            // Handle Firing
+            const currentTime = Date.now();
+            if (mouse.isDown && currentTime - lastShotTime >= shootCooldown) {
+                bullets.push(new Bullet(player.x, player.y, player.angle));
+                lastShotTime = currentTime;
+            }
+
+            // Update Bullets
+            bullets.forEach((bullet, index) => {
+                bullet.update();
+                // Remove out of bounds bullets
+                if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+                    bullets.splice(index, 1);
+                }
+            });
+
+            // Update Enemies and Collisions
+            enemies.forEach((enemy, eIndex) => {
+                enemy.update();
+
+                // Check collision with player
+                const distToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                if (distToPlayer < player.radius + enemy.radius) {
+                    player.health -= 1;
+                    if (player.health <= 0) {
+                        isGameOver = true;
+                    }
+                }
+
+                // Check collision with bullets
+                bullets.forEach((bullet, bIndex) => {
+                    const distToBullet = Math.hypot(bullet.x - enemy.x, bullet.y - enemy.y);
+                    if (distToBullet < enemy.radius + bullet.radius) {
+                        enemy.health -= 30;
+                        bullets.splice(bIndex, 1);
+
+                        if (enemy.health <= 0) {
+                            enemies.splice(eIndex, 1);
+                            score += 10;
+                        }
+                    }
+                });
+            });
+
+            // Update UI Elements
+            document.getElementById("healthDisplay").innerText = Math.max(0, player.health);
+            document.getElementById("scoreDisplay").innerText = score;
+        }
+
+        // Render Graphics Loop
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Bullets
+            bullets.forEach(bullet => bullet.draw());
+
+            // Draw Enemies
+            enemies.forEach(enemy => enemy.draw());
+
+            // Draw Player
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fillStyle = player.color;
+            ctx.fill();
+            ctx.closePath();
+
+            // Draw Aim Direction Indicator Line
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y);
+            ctx.lineTo(player.x + Math.cos(player.angle) * 25, player.y + Math.sin(player.angle) * 25);
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.closePath();
+
+            // Game Over Screen Overlay
+            if (isGameOver) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 40px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 20);
+
+                ctx.font = "20px sans-serif";
+                ctx.fillText("Refresh page to play again", canvas.width / 2, canvas.height / 2 + 30);
+            }
+        }
+
+        // Core Game Engine Tick Loop
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
