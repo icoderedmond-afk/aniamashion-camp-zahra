@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Mini Obby - Ultimate Edition</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: #aaa;
+            font-size: 15px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>Deaths: <span id="death-count">0</span></div>
+        <div>Checkpoint: <span id="checkpoint-count">1</span> / 10</div>
+    </div>
+    <div id="instructions">Use <b>W / A / S / D</b> or <b>Arrow Keys</b> to move. Press <b>SPACEBAR</b> to jump!</div>
+
+    <!-- Include Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- Game Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+        scene.fog = new THREE.FogExp2(0x1a1a2e, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 40, 20);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // --- Materials ---
+        const matStart = new THREE.MeshStandardMaterial({ color: 0x4ecca3 });
+        const matPlatform = new THREE.MeshStandardMaterial({ color: 0x0f4c75 });
+        const matLava = new THREE.MeshStandardMaterial({ color: 0xe94560, emissive: 0x551122 });
+        const matGoal = new THREE.MeshStandardMaterial({ color: 0xf39c12, emissive: 0x332200 });
+        const matPlayer = new THREE.MeshStandardMaterial({ color: 0xffd369 });
+        const matSpinner = new THREE.MeshStandardMaterial({ color: 0xff6b6b, emissive: 0x441111 });
+        const matCheckpoint = new THREE.MeshStandardMaterial({ color: 0x3498db, emissive: 0x112244 });
+
+        // --- Track & Obstacles Generation ---
+        const platforms = [];
+        const spinners = [];
+        const checkpoints = [];
+
+        function createPlatform(x, y, z, w, h, d, material, isMoving = false, axis = 'x') {
+            const geom = new THREE.BoxGeometry(w, h, d);
+            const mesh = new THREE.Mesh(geom, material);
+            mesh.position.set(x, y, z);
+            mesh.receiveShadow = true;
+            mesh.castShadow = true;
+            scene.add(mesh);
+
+            const platData = { mesh, x, y, z, w, h, d, isMoving, axis, offset: Math.random() * Math.PI * 2 };
+            platforms.push(platData);
+            return platData;
+        }
+
+        // --- ULTIMATE COURSE LAYOUT (10 Checkpoints - Brought Closer Together) ---
+        
+        // Level 1: Introduction & Steps
+        createPlatform(0, 0, 0, 6, 1, 6, matStart); 
+        createPlatform(0, 0, -7, 4, 1, 4, matPlatform);
+
+        // Checkpoint 1
+        const cp1 = { x: 0, y: 1, z: -13, active: false };
+        checkpoints.push(cp1);
+        createPlatform(cp1.x, 0, cp1.z, 4, 1, 4, matCheckpoint);
+
+        // Level 2: Gentle Horizontal Moving Platform
+        createPlatform(0, 0, -19, 4, 1, 4, matPlatform);
+        const m1 = createPlatform(0, 0, -26, 4, 1, 3, matPlatform, true, 'x');
+        m1.range = 3.0;
+        createPlatform(0, 0, -33, 4, 1, 4, matPlatform);
+
+        // Checkpoint 2
+        const cp2 = { x: 0, y: 1, z: -39, active: false };
+        checkpoints.push(cp2);
+        createPlatform(cp2.x, 0, cp2.z, 4, 1, 4, matCheckpoint);
+
+        // Level 3: Precision Jumps (Zig-Zag)
+        createPlatform(1.5, 0, -45, 3, 1, 3, matPlatform);
+        createPlatform(-1.5, 0, -51, 3, 1, 3, matPlatform);
+        createPlatform(1.5, 0, -57, 3, 1, 3, matPlatform);
+
+        // Checkpoint 3
+        const cp3 = { x: 1.5, y: 1, z: -63, active: false };
+        checkpoints.push(cp3);
+        createPlatform(cp3.x, 0, cp3.z, 4, 1, 4, matCheckpoint);
+
+        // Level 4: Double Moving Stepping Stones
+        const m2 = createPlatform(-1.5, 0, -70, 3, 1, 3, matPlatform, true, 'x');
+        m2.range = 2.0;
+        const m3 = createPlatform(1.5, 0, -77, 3, 1, 3, matPlatform, true, 'x');
+        m3.range = 2.0;
+
+        // Checkpoint 4
+        const cp4 = { x: 0, y: 1, z: -84, active: false };
+        checkpoints.push(cp4);
+        createPlatform(cp4.x, 0, cp4.z, 4, 1, 4, matCheckpoint);
+
+        // Level 5: The First Spinner Obstacle
+        const spinnerPlat1 = createPlatform(0, 0, -92, 6, 1, 6, matPlatform);
+        const spinnerMesh1 = new THREE.Mesh(new THREE.BoxGeometry(5, 0.4, 0.8), matSpinner);
+        spinnerMesh1.position.set(0, 0.7, -92);
+        spinnerMesh1.castShadow = true;
+        scene.add(spinnerMesh1);
+        spinners.push({ mesh: spinnerMesh1 });
+
+        // Checkpoint 5
+        const cp5 = { x: 0, y: 1, z: -100, active: false };
+        checkpoints.push(cp5);
+        createPlatform(cp5.x, 0, cp5.z, 4, 1, 4, matCheckpoint);
+
+        // Level 6: Vertical Elevation Steps
+        createPlatform(0, 1, -107, 3.5, 1, 3.5, matPlatform);
+        createPlatform(0, 2, -114, 3.5, 1, 3.5, matPlatform);
+        createPlatform(0, 3, -121, 3.5, 1, 3.5, matPlatform);
+
+        // Checkpoint 6
+        const cp6 = { x: 0, y: 4, z: -128, active: false };
+        checkpoints.push(cp6);
+        createPlatform(cp6.x, 3, cp6.z, 4, 1, 4, matCheckpoint);
+
+        // Level 7: Depth/Z-Axis Moving Platform Challenge
+        createPlatform(0, 3, -135, 3.5, 1, 3.5, matPlatform);
+        const m4 = createPlatform(0, 3, -143, 3.5, 1, 3, matPlatform, true, 'z'); 
+        m4.range = 3.5;
+        createPlatform(0, 3, -151, 3.5, 1, 3.5, matPlatform);
+
+        // Checkpoint 7
+        const cp7 = { x: 0, y: 4, z: -158, active: false };
+        checkpoints.push(cp7);
+        createPlatform(cp7.x, 3, cp7.z, 4, 1, 4, matCheckpoint);
+
+        // Level 8: High Speed Spinner Gauntlet
+        const spinnerPlat2 = createPlatform(0, 3, -166, 6, 1, 6, matPlatform);
+        const spinnerMesh2 = new THREE.Mesh(new THREE.BoxGeometry(5, 0.4, 0.8), matSpinner);
+        spinnerMesh2.position.set(0, 3.7, -166);
+        spinnerMesh2.castShadow = true;
+        scene.add(spinnerMesh2);
+        spinners.push({ mesh: spinnerMesh2, speed: 2.0 });
+
+        // Checkpoint 8
+        const cp8 = { x: 0, y: 4, z: -174, active: false };
+        checkpoints.push(cp8);
+        createPlatform(cp8.x, 3, cp8.z, 4, 1, 4, matCheckpoint);
+
+        // Level 9: Rapid Crossing Moving Platforms
+        const m5 = createPlatform(-1.5, 3, -181, 3, 1, 3, matPlatform, true, 'x');
+        m5.range = 2.5;
+        const m6 = createPlatform(1.5, 3, -188, 3, 1, 3, matPlatform, true, 'x');
+        m6.range = 2.5;
+
+        // Checkpoint 9
+        const cp9 = { x: 0, y: 4, z: -195, active: false };
+        checkpoints.push(cp9);
+        createPlatform(cp9.x, 3, cp9.z, 4, 1, 4, matCheckpoint);
+
+        // Level 10: Final Stretch & Ultimate Goal
+        createPlatform(0, 3, -202, 3, 1, 3, matPlatform);
+        const m7 = createPlatform(0, 3, -209, 4, 1, 3, matPlatform, true, 'x');
+        m7.range = 3.5;
+        createPlatform(0, 3, -217, 5, 1, 6, matGoal);
+
+        // Death Floor (Lava) below the huge course
+        const lavaGeom = new THREE.PlaneGeometry(600, 600);
+        const lavaMesh = new THREE.Mesh(lavaGeom, matLava);
+        lavaMesh.rotation.x = -Math.PI / 2;
+        lavaMesh.position.set(0, -6, -110);
+        scene.add(lavaMesh);
+
+        // --- Player Setup ---
+        const playerGeom = new THREE.BoxGeometry(1, 1.5, 1);
+        const playerMesh = new THREE.Mesh(playerGeom, matPlayer);
+        playerMesh.castShadow = true;
+        scene.add(playerMesh);
+
+        const player = {
+            width: 1, height: 1.5, depth: 1,
+            x: 0, y: 3, z: 2,
+            vx: 0, vy: 0, vz: 0,
+            speed: 0.12,
+            jumpForce: 0.22,
+            gravity: 0.012,
+            isGrounded: false
+        };
+
+        let currentSpawn = { x: 0, y: 3, z: 2 };
+        let activeCheckpointIndex = 0;
+        let deaths = 0;
+
+        // --- Controls Input ---
+        const keys = { left: false, right: false, forward: false, backward: false };
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+            if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.forward = true;
+            if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.backward = true;
+            if (e.code === 'Space') {
+                if (player.isGrounded) {
+                    player.vy = player.jumpForce;
+                    player.isGrounded = false;
+                }
+                e.preventDefault();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+            if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.forward = false;
+            if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.backward = false;
+        });
+
+        function respawn() {
+            deaths++;
+            document.getElementById('death-count').innerText = deaths;
+            player.x = currentSpawn.x;
+            player.y = currentSpawn.y;
+            player.z = currentSpawn.z;
+            player.vx = 0;
+            player.vy = 0;
+            player.vz = 0;
+            player.isGrounded = false;
+        }
+
+        function resetGame() {
+            currentSpawn = { x: 0, y: 3, z: 2 };
+            activeCheckpointIndex = 0;
+            checkpoints.forEach(cp => cp.active = false);
+            document.getElementById('checkpoint-count').innerText = 1;
+            respawn();
+        }
+
+        // --- Game Loop ---
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            let time = clock.getElapsedTime();
+
+            // Handle moving platforms animation (support X and Z movement axes)
+            platforms.forEach(p => {
+                if (p.isMoving) {
+                    let oldVal = (p.axis === 'z') ? p.mesh.position.z : p.mesh.position.x;
+                    let newVal = (p.axis === 'z') ? p.z : p.x;
+                    
+                    let targetVal = newVal + Math.sin(time * 1.5 + p.offset) * p.range;
+                    let delta = targetVal - oldVal;
+
+                    if (p.axis === 'z') {
+                        p.mesh.position.z = targetVal;
+                        p.dz = delta;
+                    } else {
+                        p.mesh.position.x = targetVal;
+                        p.dx = delta;
+                    }
+                }
+            });
+
+            // Handle spinning obstacle rotation
+            spinners.forEach((s, idx) => {
+                let rotSpeed = s.speed || 1.0;
+                s.mesh.rotation.y = time * rotSpeed;
+            });
+
+            // Handle player directional steering
+            player.vx = 0;
+            player.vz = 0;
+            if (keys.left) player.vx = -player.speed;
+            if (keys.right) player.vx = player.speed;
+            if (keys.forward) player.vz = -player.speed;
+            if (keys.backward) player.vz = player.speed;
+
+            player.x += player.vx;
+            player.z += player.vz;
+            
+            // Apply gravity
+            player.vy -= player.gravity;
+            player.y += player.vy;
+
+            // --- AABB Collision Detection ---
+            player.isGrounded = false;
+            
+            platforms.forEach(p => {
+                let pMinX = p.mesh.position.x - p.w / 2;
+                let pMaxX = p.mesh.position.x + p.w / 2;
+                let pMinY = p.mesh.position.y - p.h / 2;
+                let pMaxY = p.mesh.position.y + p.h / 2;
+                let pMinZ = p.mesh.position.z - p.d / 2;
+                let pMaxZ = p.mesh.position.z + p.d / 2;
+
+                if (player.x + player.width / 2 > pMinX && player.x - player.width / 2 < pMaxX &&
+                    player.z + player.depth / 2 > pMinZ && player.z - player.depth / 2 < pMaxZ) {
+                    
+                    let prevY = player.y - player.vy;
+                    if (prevY - player.height / 2 >= pMaxY - 0.2 && player.y - player.height / 2 <= pMaxY) {
+                        player.y = pMaxY + player.height / 2;
+                        player.vy = 0;
+                        player.isGrounded = true;
+
+                        if (p.isMoving) {
+                            if (p.dx) player.x += p.dx;
+                            if (p.dz) player.z += p.dz;
+                        }
+                    }
+                }
+            });
+
+            // Spinner Collision Check
+            spinners.forEach(s => {
+                let sBox = new THREE.Box3().setFromObject(s.mesh);
+                let pBox = new THREE.Box3().setFromObject(playerMesh);
+                if (sBox.intersectsBox(pBox)) {
+                    respawn();
+                }
+            });
+
+            // Checkpoint System
+            checkpoints.forEach((cp, index) => {
+                if (!cp.active && Math.abs(player.x - cp.x) < 2 && Math.abs(player.z - cp.z) < 2 && player.y - player.height/2 <= cp.y + 1 && player.y >= cp.y - 1) {
+                    cp.active = true;
+                    currentSpawn = { x: cp.x, y: cp.y + 1.5, z: cp.z };
+                    activeCheckpointIndex = index + 2;
+                    document.getElementById('checkpoint-count').innerText = activeCheckpointIndex;
+                }
+            });
+
+            // Check win condition
+            if (player.z < -214) {
+                alert("🎉 Incredible! You beat the Ultimate Obby!");
+                resetGame();
+            }
+
+            // Check death condition (Falling into lava)
+            if (player.y < -4) {
+                respawn();
+            }
+
+            // Update 3D Mesh Position
+            playerMesh.position.set(player.x, player.y, player.z);
+
+            // Smooth Third-Person Camera Follow
+            camera.position.x += (player.x - camera.position.x) * 0.1;
+            camera.position.y += ((player.y + 4) - camera.position.y) * 0.1;
+            camera.position.z += ((player.z + 7) - camera.position.z) * 0.1;
+            camera.lookAt(player.x, player.y, player.z - 2);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Responsive window scaling
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
