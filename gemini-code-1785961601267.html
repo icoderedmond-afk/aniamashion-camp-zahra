@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Hero Shooter - Nightmare Difficulty</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        body {
+            background-color: #0b0d14;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            display: flex;
+            gap: 30px;
+            font-size: 16px;
+            font-weight: bold;
+            background: rgba(20, 24, 38, 0.9);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #4a1525;
+            box-shadow: 0 4px 15px rgba(255,0,60,0.2);
+            z-index: 10;
+        }
+        .stat-val {
+            color: #00ffcc;
+        }
+        .boss-stat {
+            color: #ff2255;
+        }
+        canvas {
+            background: linear-gradient(135deg, #121522 0%, #07090f 100%);
+            border: 2px solid #4a1525;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        }
+        #controls-hint {
+            margin-top: 15px;
+            color: #8b9bb4;
+            font-size: 14px;
+            text-align: center;
+        }
+        kbd {
+            background: #2a314f;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border-bottom: 2px solid #141826;
+            color: #fff;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div>YOUR HP: <span id="hp-val" class="stat-val">250</span></div>
+        <div>BOSS HP: <span id="boss-hp-val" class="boss-stat">600</span></div>
+        <div>DASH CD: <span id="dash-val" class="stat-val">READY</span></div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+    <div id="controls-hint">
+        Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> | Aim & Shoot: <kbd>Mouse / Left Click</kbd> | Dash: <kbd>Spacebar</kbd>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const hpEl = document.getElementById("hp-val");
+        const bossHpEl = document.getElementById("boss-hp-val");
+        const dashEl = document.getElementById("dash-val");
+
+        const keys = {};
+        const mouse = { x: 0, y: 0, down: false };
+
+        window.addEventListener("keydown", (e) => {
+            keys[e.code] = true;
+            if (e.code === "Space") {
+                e.preventDefault();
+                player.dash();
+            }
+        });
+        window.addEventListener("keyup", (e) => { keys[e.code] = false; });
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+        canvas.addEventListener("mousedown", () => { mouse.down = true; });
+        canvas.addEventListener("mouseup", () => { mouse.down = false; });
+
+        // Player Object
+        class Player {
+            constructor() {
+                this.x = 150;
+                this.y = canvas.height / 2;
+                this.radius = 15;
+                this.speed = 3.6; // Slightly slower movement
+                this.maxHp = 250; // Increased health pool
+                this.hp = this.maxHp;
+                
+                this.shootCooldown = 0;
+                this.dashCooldown = 0;
+                this.isDashing = false;
+                this.dashTimer = 0;
+                this.dashVx = 0;
+                this.dashVy = 0;
+            }
+
+            update() {
+                if (this.isDashing) {
+                    this.x += this.dashVx;
+                    this.y += this.dashVy;
+                    this.dashTimer--;
+                    if (this.dashTimer <= 0) this.isDashing = false;
+                } else {
+                    let dx = 0;
+                    let dy = 0;
+                    if (keys["KeyW"] || keys["ArrowUp"]) dy -= 1;
+                    if (keys["KeyS"] || keys["ArrowDown"]) dy += 1;
+                    if (keys["KeyA"] || keys["ArrowLeft"]) dx -= 1;
+                    if (keys["KeyD"] || keys["ArrowRight"]) dx += 1;
+
+                    if (dx !== 0 && dy !== 0) {
+                        dx *= 0.7071;
+                        dy *= 0.7071;
+                    }
+
+                    this.x += dx * this.speed;
+                    this.y += dy * this.speed;
+                }
+
+                this.x = Math.max(this.radius, Math.min(canvas.width - this.radius, this.x));
+                this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
+
+                if (this.shootCooldown > 0) this.shootCooldown--;
+                if (this.dashCooldown > 0) {
+                    this.dashCooldown--;
+                    dashEl.innerText = (this.dashCooldown / 60).toFixed(1) + "s";
+                    dashEl.style.color = "#ff4444";
+                } else {
+                    dashEl.innerText = "READY";
+                    dashEl.style.color = "#00ffcc";
+                }
+
+                if (mouse.down && this.shootCooldown === 0) {
+                    this.shoot();
+                }
+
+                hpEl.innerText = Math.max(0, this.hp);
+            }
+
+            shoot() {
+                this.shootCooldown = 18; // Slower player fire rate
+                const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+                projectiles.push(new Projectile(this.x, this.y, angle, true, "normal"));
+            }
+
+            dash() {
+                if (this.dashCooldown === 0 && !this.isDashing) {
+                    this.isDashing = true;
+                    this.dashTimer = 9;
+                    this.dashCooldown = 150; // 2.5 second harsh cooldown
+                    
+                    let dx = 0;
+                    let dy = 0;
+                    if (keys["KeyW"] || keys["ArrowUp"]) dy -= 1;
+                    if (keys["KeyS"] || keys["ArrowDown"]) dy += 1;
+                    if (keys["KeyA"] || keys["ArrowLeft"]) dx -= 1;
+                    if (keys["KeyD"] || keys["ArrowRight"]) dx += 1;
+
+                    if (dx === 0 && dy === 0) {
+                        const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+                        dx = Math.cos(angle);
+                        dy = Math.sin(angle);
+                    } else {
+                        const len = Math.hypot(dx, dy);
+                        dx /= len;
+                        dy /= len;
+                    }
+
+                    this.dashVx = dx * 15;
+                    this.dashVy = dy * 15;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+                ctx.rotate(angle);
+
+                if (this.isDashing) {
+                    ctx.strokeStyle = "#00ffcc";
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius + 4, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                ctx.fillStyle = "#00ffcc";
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, -4, this.radius + 6, 8);
+                ctx.restore();
+            }
+        }
+
+        // Nightmare Boss Object (Patterns & High Speed)
+        class Boss {
+            constructor() {
+                this.x = canvas.width - 150;
+                this.y = canvas.height / 2;
+                this.radius = 24;
+                this.speed = 3.8; // Extremely fast tracker
+                this.maxHp = 600; // Tanky health pool
+                this.hp = this.maxHp;
+                this.attackTimer = 0;
+                this.patternIndex = 0;
+            }
+
+            update() {
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                const dist = Math.hypot(player.x - this.x, player.y - this.y);
+
+                // Relentless aggressive chasing
+                if (dist > 180) {
+                    this.x += Math.cos(angle) * this.speed;
+                    this.y += Math.sin(angle) * this.speed;
+                } else if (dist < 100) {
+                    this.x -= Math.cos(angle) * this.speed;
+                    this.y -= Math.sin(angle) * this.speed;
+                }
+
+                this.x = Math.max(this.radius, Math.min(canvas.width - this.radius, this.x));
+                this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
+
+                // Fast attack cadence cycle
+                this.attackTimer++;
+                if (this.attackTimer >= 35) {
+                    this.attackTimer = 0;
+                    this.executeNightmarePattern();
+                }
+
+                bossHpEl.innerText = Math.max(0, this.hp);
+            }
+
+            executeNightmarePattern() {
+                const baseAngle = Math.atan2(player.y - this.y, player.x - this.x);
+                this.patternIndex = (this.patternIndex + 1) % 2;
+
+                if (this.patternIndex === 0) {
+                    // Pattern A: 5-Way Wide Spread Fan
+                    for (let i = -2; i <= 2; i++) {
+                        const spreadAngle = baseAngle + (i * 0.25);
+                        projectiles.push(new Projectile(this.x, this.y, spreadAngle, false, "fast"));
+                    }
+                } else {
+                    // Pattern B: Homing Sniping Burst (Double high-speed bolts)
+                    projectiles.push(new Projectile(this.x, this.y, baseAngle - 0.1, false, "sniper"));
+                    projectiles.push(new Projectile(this.x, this.y, baseAngle + 0.1, false, "sniper"));
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                ctx.rotate(angle);
+
+                // Menacing outer aura glow
+                ctx.strokeStyle = "#ff0044";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Boss Core
+                ctx.fillStyle = "#990022";
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Dual Cannons
+                ctx.fillStyle = "#ffaa00";
+                ctx.fillRect(0, -8, this.radius + 12, 6);
+                ctx.fillRect(0, 2, this.radius + 12, 6);
+
+                ctx.restore();
+            }
+        }
+
+        // Projectile Class
+        class Projectile {
+            constructor(x, y, angle, isPlayerBullet, type) {
+                this.x = x;
+                this.y = y;
+                this.isPlayerBullet = isPlayerBullet;
+                this.type = type;
+
+                if (isPlayerBullet) {
+                    this.speed = 11;
+                    this.radius = 5;
+                } else if (type === "sniper") {
+                    this.speed = 10; // Very fast sniper shot
+                    this.radius = 7;
+                } else {
+                    this.speed = 6.5; // Spread wave bullets
+                    this.radius = 5.5;
+                }
+
+                this.vx = Math.cos(angle) * this.speed;
+                this.vy = Math.sin(angle) * this.speed;
+                this.active = true;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+                    this.active = false;
+                }
+            }
+
+            draw() {
+                if (this.isPlayerBullet) {
+                    ctx.fillStyle = "#00ffcc";
+                } else if (this.type === "sniper") {
+                    ctx.fillStyle = "#ff00ff"; // Special sniper color
+                } else {
+                    ctx.fillStyle = "#ff3300";
+                }
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        let player = new Player();
+        let boss = new Boss();
+        let projectiles = [];
+        let gameState = "PLAYING";
+
+        function resetGame() {
+            player = new Player();
+            boss = new Boss();
+            projectiles = [];
+            gameState = "PLAYING";
+        }
+
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === "PLAYING") {
+                player.update();
+                boss.update();
+
+                for (let i = projectiles.length - 1; i >= 0; i--) {
+                    let p = projectiles[i];
+                    p.update();
+
+                    if (!p.active) {
+                        projectiles.splice(i, 1);
+                        continue;
+                    }
+
+                    if (p.isPlayerBullet) {
+                        const dist = Math.hypot(boss.x - p.x, boss.y - p.y);
+                        if (dist < boss.radius + p.radius) {
+                            boss.hp -= 10; // Balanced player damage
+                            p.active = false;
+                            projectiles.splice(i, 1);
+                            if (boss.hp <= 0) {
+                                gameState = "WON";
+                            }
+                        }
+                    } else {
+                        // Invincible during dash frames to give skilled player counterplay
+                        const dist = Math.hypot(player.x - p.x, player.y - p.y);
+                        if (dist < player.radius + p.radius) {
+                            if (!player.isDashing) {
+                                player.hp -= (p.type === "sniper" ? 25 : 15); // Sniper hits like a truck
+                                if (player.hp <= 0) {
+                                    gameState = "LOST";
+                                }
+                            }
+                            p.active = false;
+                            projectiles.splice(i, 1);
+                        }
+                    }
+                }
+            } else {
+                ctx.fillStyle = "rgba(11, 13, 20, 0.9)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.font = "bold 36px Segoe UI";
+                ctx.textAlign = "center";
+                
+                if (gameState === "WON") {
+                    ctx.fillStyle = "#00ffcc";
+                    ctx.fillText("NIGHTMARE CONQUERED!", canvas.width / 2, canvas.height / 2 - 20);
+                } else {
+                    ctx.fillStyle = "#ff2255";
+                    ctx.fillText("ANNIHILATED", canvas.width / 2, canvas.height / 2 - 20);
+                }
+
+                ctx.fillStyle = "#fff";
+                ctx.font = "18px Segoe UI";
+                ctx.fillText("Click anywhere to Face the Nightmare Again", canvas.width / 2, canvas.height / 2 + 30);
+                
+                canvas.onclick = () => {
+                    resetGame();
+                    canvas.onclick = null;
+                };
+            }
+
+            for (let p of projectiles) p.draw();
+            boss.draw();
+            player.draw();
+
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
